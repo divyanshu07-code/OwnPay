@@ -266,7 +266,7 @@ final class PaypalCheckoutGateway implements PluginInterface, GatewayAdapterInte
             }
         }
 
-        if ($status === 'COMPLETED' && is_array($result)) {
+        if (is_array($result) && $status === 'COMPLETED') {
             $purchaseUnits = $result['purchase_units'] ?? null;
             $firstPurchaseUnit = is_array($purchaseUnits) ? ($purchaseUnits[0] ?? null) : null;
             $payments = is_array($firstPurchaseUnit) ? ($firstPurchaseUnit['payments'] ?? null) : null;
