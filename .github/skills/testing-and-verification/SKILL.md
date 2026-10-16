@@ -36,10 +36,10 @@ composer audit
 
 `phpunit.xml` pins `DB_HOST=127.0.0.1`, `DB_NAME=ownpay_test`, `DB_USER=root` (`:42-45`). With no server reachable:
 
-- The entire `tests/Integration/` tree is DB-backed.
+- 59 of the 66 files in `tests/Integration/` extend `IntegrationTestCase` and need MySQL; the other seven run DB-free (`SmokeTest`, `FlowTest`, `DomainsAddWizardTest`, `DomainsManagePanelTest`, `DomainsPageCardListTest`, `SettingsDomainsLinkTest`, `MobileBootstrapRouteTest`).
 - **Five classes outside it** extend `IntegrationTestCase` and need MySQL too: `tests/Unit/MerchantRepositoryFindFirstTest.php`, `tests/Feature/PlatformMaintenanceTest.php`, and `tests/Plugin/{PluginTrashTest,TenantPluginLifecycleTest,BrandGatewayConfigSyncTest}.php`. Never conclude "`tests/Integration` is the only DB suite" from directory names — `grep -rln "extends IntegrationTestCase" tests/`.
 - Some plain unit tests boot the container and hit MySQL anyway (e.g. `tests/Unit/CheckoutPaymentMethodVisibilityTest.php`, `tests/Unit/CheckoutGatewayTabsAndTestConnectionTest.php`).
-- **No DB ⇒ errors, not clean skips.** `IntegrationTestCase::setUp()` calls `markTestSkipped()` when no server is reachable (`tests/Integration/IntegrationTestCase.php:43`), but not every subclass guards its `tearDown()` or typed properties, so a no-DB run reports `PDOException: SQLSTATE[HY000] [2002] Connection refused` and `Typed property … must not be accessed before initialization`. Grep `static::$dbAvailable` in the failing class before believing either claim.
+- **`IntegrationTestCase` tests skip cleanly; the no-DB errors come from plain unit tests.** `IntegrationTestCase::setUp()` calls `markTestSkipped()` when no server is reachable (`tests/Integration/IntegrationTestCase.php:44`), so `vendor/bin/phpunit tests/Integration` exits 0 with every DB test skipped — a green run there is *not* evidence the DB suite ran. The errors come from container-booting unit tests that hit MySQL anyway (verified without a server: full suite `Tests: 1027, Errors: 12`, all `PDOException: SQLSTATE[HY000] [2002] Connection refused` in `tests/Unit/CheckoutGatewayTabsAndTestConnectionTest.php` and `tests/Unit/CheckoutPaymentMethodVisibilityTest.php`). Grep `static::$dbAvailable` in the failing class before believing either claim.
 
 ### Suites that run DB-free (the reliable local signal)
 
@@ -73,7 +73,7 @@ CI's `phpunit` job installs `coverage: xdebug`; every other job sets `coverage: 
 
 ## Environment pins worth knowing
 
-- `phpunit.xml` sets `APP_ENV=testing` (`:52`), so production guards (`GatewayDefaults::isProductionEnv()`, installer locks, …) are inert under the suite. Guard tests must set `$_ENV['APP_ENV']` themselves — see `tests/Unit/GatewaySimulationGuardTest.php`.
+- `phpunit.xml` sets `APP_ENV=testing` (`:52`), so production guards (`GatewayDefaults::isProductionEnv()`, …) are inert under the suite. Guard tests must set `$_ENV['APP_ENV']` themselves — see `tests/Unit/GatewaySimulationGuardTest.php`.
 - `.github/workflows/eslint.yml` runs `npx eslint .` with `continue-on-error: true` and only on `main` — JSON lint problems never fail CI. For a new JSON file, run `npm run lint:json` yourself (comment-free, 2-space indent).
 - `vendor/` is tracked in git; `node_modules/` is not, so any packaging or CI-faithful run needs `npm ci` first.
 

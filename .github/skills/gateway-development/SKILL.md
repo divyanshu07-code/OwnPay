@@ -14,7 +14,7 @@ description: Build or modify a OwnPay payment gateway adapter under modules/gate
 
 ## Anatomy of a gateway
 
-Each gateway is one folder under `modules/gateways/<slug>/` containing exactly (mirroring any sibling folder):
+Each gateway is one folder under `modules/gateways/<slug>/`, mirroring the common sibling shape:
 
 ```
 modules/gateways/<slug>/
@@ -22,6 +22,8 @@ modules/gateways/<slug>/
 ├── <Slug>Gateway.php  # the adapter class
 └── icon.svg
 ```
+
+That three-entry shape is the dominant one, but two known variants exist across the 123 gateways: 12 folders ship the icon as `assets/icon.png` / `assets/logo.jpg` (or a root `logo.png` in `adyen`, `affirm`) instead of `icon.svg`, and `stripe`, `bkash-api`, `sslcommerz` add an `assets/` directory beside the three entries. Scaffold the shape above; only copy a sibling's icon layout if you are deliberately mirroring its variant.
 
 `manifest.json` fields (verified against `modules/gateways/2checkout/manifest.json`): `name`, `slug`, `version`, `description`, `author`, `type: "gateway"`, `entrypoint` (the PHP file name), `namespace`, `capabilities` (e.g. `gateway`, `http_outbound`, `hooks`), `requires`, `category`, `color`, and a `csp` block (`script_src` / `style_src` / `frame_src` origins). Keep JSON comment-free and 2-space indented — the repo's eslint jsonc rules expect that even though CI never blocks on it.
 

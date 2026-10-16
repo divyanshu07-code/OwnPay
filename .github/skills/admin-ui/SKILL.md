@@ -31,7 +31,7 @@ Templates can gate on `is_superadmin` directly — it is injected on every rende
 
 ## The `op-*` component library — compose, do not invent
 
-`public/assets/css/admin.css` already ships the vocabulary: `op-card` (`-header` / `-body` / `-footer`), `op-table`, `op-badge`, `op-btn` (`-primary` / `-outline` / `-danger` / `-ghost` / `-sm` / `-xs`), `op-input`, `op-alert`, `op-tabs` / `op-tab` / `op-tab-panel`, `op-modal`, `op-form-group` / `op-form-row`, `op-stats-grid`, plus page-specific classes. Spacing, radius and status scales live in `public/assets/css/tokens.css`. A new page is existing components in a new arrangement; grep `admin.css` before writing a bespoke class.
+`public/assets/css/admin.css` already ships the vocabulary: `op-card` (`-header` / `-body`; `admin.css` has no `-footer` — `.op-card-footer` is page-specific, `public/assets/css/pages/developer.css:251`), `op-table`, `op-badge`, `op-btn` (`-primary` / `-outline` / `-danger` / `-ghost` / `-sm` / `-xs`), `op-input`, `op-alert`, `op-tabs` / `op-tab` / `op-tab-panel`, `op-modal`, `op-form-group` / `op-form-row`, `op-stats-grid`, plus page-specific classes. Spacing, radius and status scales live in `public/assets/css/tokens.css`. A new page is existing components in a new arrangement; grep `admin.css` before writing a bespoke class.
 
 **Dark is the hardcoded default theme.** `templates/admin/layout/base.twig:2` ships `<html … data-theme="dark">` and `admin.css` overrides the token set under `[data-theme="dark"]`. Any standalone mockup or screenshot comparison must set `data-theme="dark"` on its root to match what users actually see.
 
