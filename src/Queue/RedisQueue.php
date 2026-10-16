@@ -242,13 +242,13 @@ final class RedisQueue implements QueueInterface
 
         for ($i = 0; $i < $length; $i++) {
             $raw = $this->redis->lIndex($failedKey, $i);
-            if ($raw === false) {
+            if (!is_string($raw)) {
                 continue;
             }
 
-            $job = json_decode((string) $raw, true);
+            $job = json_decode($raw, true);
             if (is_array($job) && ($job['id'] ?? '') === $jobId) {
-                $this->redis->lRem($failedKey, (string) $raw, 1);
+                $this->redis->lRem($failedKey, $raw, 1);
 
                 $attempts = is_numeric($job['attempts'] ?? null) ? (int) $job['attempts'] : 0;
 
