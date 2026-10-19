@@ -18,9 +18,29 @@ use PHPUnit\Framework\TestCase;
  */
 final class AccountLockoutEscalationTest extends TestCase
 {
+    /**
+     * @var array<string, string|null> Original $_ENV values keyed by name; null marks a key that was absent.
+     */
+    private array $originalEnv = [];
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        $this->originalEnv = [
+            'MAX_LOGIN_ATTEMPTS' => $_ENV['MAX_LOGIN_ATTEMPTS'] ?? null,
+            'LOCKOUT_DURATION' => $_ENV['LOCKOUT_DURATION'] ?? null,
+        ];
+    }
+
     protected function tearDown(): void
     {
-        unset($_ENV['MAX_LOGIN_ATTEMPTS'], $_ENV['LOCKOUT_DURATION']);
+        foreach ($this->originalEnv as $key => $value) {
+            if ($value === null) {
+                unset($_ENV[$key]);
+            } else {
+                $_ENV[$key] = $value;
+            }
+        }
         parent::tearDown();
     }
 
@@ -75,30 +95,67 @@ final class AccountLockoutEscalationTest extends TestCase
 
     public function testAttemptsSubmittedWhileLockedAreRecordedAndEscalateTheReportedWindow(): void
     {
-        $_ENV['MAX_LOGIN_ATTEMPTS'] = 5;
-        $_ENV['LOCKOUT_DURATION'] = 300;
-
         // (email, IP) counter: tier-2 window (600s) almost spent when the
         // rejected attempt arrives. The per-email counter stays below its 3x
         // threshold so the (email, IP) side alone drives the lockout here.
-        $ipFails = 10;
-        $ipSinceLast = 500;
-        $inserted = null;
+        $attempt = $this->attemptWhileLocked(['fails' => 10, 'since_last' => 500]);
 
+        $this->assertFalse($attempt['result']['success']);
+        $inserted = $attempt['inserted'];
+        $this->assertIsArray($inserted, 'an attempt made while locked must still be recorded');
+        $this->assertSame('victim@example.test', $inserted['email']);
+        $this->assertSame('203.0.113.10', $inserted['ip_address']);
+        $this->assertSame(0, $inserted['success']);
+        // The rejection reports the re-armed window (600s from the attempt just
+        // recorded) rather than the near-expired remainder that preceded it.
+        $this->assertStringContainsString('10 minute', (string) ($attempt['result']['error'] ?? ''));
+    }
+
+    public function testTenthFailureWhileLockedEscalatesTheWindowFromFiveToTenMinutes(): void
+    {
+        // Nine failures sit at the top of the tier-1 window (5 minutes), one
+        // short of the batch boundary, so the rejected attempt is the tenth
+        // failure: the re-counted window must double to tier 2 (10 minutes).
+        $attempt = $this->attemptWhileLocked(['fails' => 9, 'since_last' => 0]);
+
+        $this->assertFalse($attempt['result']['success']);
+        $this->assertStringContainsString(
+            '10 minute',
+            (string) ($attempt['result']['error'] ?? ''),
+            'the tenth failure must cross the batch boundary and double the reported window'
+        );
+    }
+
+    /**
+     * Runs a login attempt while the account is already locked, against canned
+     * counters. Recording the rejected attempt bumps the (email, IP) failure
+     * count and re-arms its timestamp, mirroring the insert-then-recount the
+     * real lockout path performs. The per-email counter stays below its 3x
+     * threshold so the (email, IP) side alone drives the lockout.
+     *
+     * @param array{fails: int, since_last: int} $ipCounter
+     * @return array{result: array<string, mixed>, inserted: array<string, mixed>|null}
+     */
+    private function attemptWhileLocked(array $ipCounter): array
+    {
+        $_ENV['MAX_LOGIN_ATTEMPTS'] = 5;
+        $_ENV['LOCKOUT_DURATION'] = 300;
+
+        $inserted = null;
         $db = $this->createMock(Database::class);
         $db->method('fetchOne')->willReturnCallback(
-            static function (string $sql) use (&$ipFails, &$ipSinceLast): array {
+            static function (string $sql) use (&$ipCounter): array {
                 if (str_contains($sql, 'ip_address = :ip')) {
-                    return ['fails' => $ipFails, 'since_last' => $ipSinceLast];
+                    return $ipCounter;
                 }
                 return ['fails' => 4, 'since_last' => 500];
             }
         );
         $db->method('insert')->willReturnCallback(
-            static function (string $sql, array $params) use (&$ipFails, &$ipSinceLast, &$inserted): string {
+            static function (string $sql, array $params) use (&$ipCounter, &$inserted): string {
                 $inserted = $params;
-                $ipFails += 1;
-                $ipSinceLast = 0;
+                $ipCounter['fails'] += 1;
+                $ipCounter['since_last'] = 0;
                 return '1';
             }
         );
@@ -109,15 +166,9 @@ final class AccountLockoutEscalationTest extends TestCase
             new EventManager()
         );
 
-        $result = $auth->attempt('victim@example.test', 'wrong-password', '203.0.113.10', 'PHPUnit');
-
-        $this->assertFalse($result['success']);
-        $this->assertIsArray($inserted, 'an attempt made while locked must still be recorded');
-        $this->assertSame('victim@example.test', $inserted['email']);
-        $this->assertSame('203.0.113.10', $inserted['ip_address']);
-        $this->assertSame(0, $inserted['success']);
-        // The rejection reports the re-armed window (600s from the attempt just
-        // recorded) rather than the near-expired remainder that preceded it.
-        $this->assertStringContainsString('10 minute', (string) ($result['error'] ?? ''));
+        return [
+            'result' => $auth->attempt('victim@example.test', 'wrong-password', '203.0.113.10', 'PHPUnit'),
+            'inserted' => $inserted,
+        ];
     }
 }
