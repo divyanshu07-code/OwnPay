@@ -93,7 +93,14 @@ final class Authenticator
         $lockRemaining = $attempts->lockoutSecondsRemaining($email, $ip, $window, $maxAttempts);
 
         if ($emailLockRemaining > 0 || $lockRemaining > 0) {
+            // Record the attempt even though it is being rejected: without this
+            // row the counters only ever see the failures that predate the
+            // lockout, so a sustained attack would merely count down the window
+            // that is already running instead of re-arming and escalating it.
+            $this->logAttempt($email, $ip, $userAgent, false);
             $events->doAction('auth.login.failed', $email, $ip);
+            $emailLockRemaining = $attempts->lockoutSecondsRemainingByEmail($email, $window, $maxAttempts * 3);
+            $lockRemaining = $attempts->lockoutSecondsRemaining($email, $ip, $window, $maxAttempts);
             $minutes = (int) ceil(max($emailLockRemaining, $lockRemaining) / 60);
             return [
                 'success' => false,

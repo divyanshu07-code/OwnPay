@@ -93,11 +93,7 @@ final class LoginAttemptRepository extends BaseRepository
         }
 
         // Exponential backoff: tier 1 at the threshold, doubling per additional batch.
-        $tier = intdiv($fails, $maxAttempts);
-        $duration = (int) ($baseWindow * (2 ** ($tier - 1)));
-        if ($duration > $maxLockout) {
-            $duration = $maxLockout;
-        }
+        $duration = $this->escalatedWindowSeconds($fails, $baseWindow, $maxAttempts, $maxLockout);
 
         $remaining = $duration - $sinceLast;
         return $remaining > 0 ? $remaining : 0;
@@ -154,14 +150,39 @@ final class LoginAttemptRepository extends BaseRepository
         }
 
         // Exponential backoff: tier 1 at the threshold, doubling per additional batch.
-        $tier = intdiv($fails, $maxAttempts);
-        $duration = (int) ($baseWindow * (2 ** ($tier - 1)));
-        if ($duration > $maxLockout) {
-            $duration = $maxLockout;
-        }
+        $duration = $this->escalatedWindowSeconds($fails, $baseWindow, $maxAttempts, $maxLockout);
 
         $remaining = $duration - $sinceLast;
         return $remaining > 0 ? $remaining : 0;
+    }
+
+    /**
+     * Computes the escalated lockout window for a cumulative failure count.
+     *
+     * Doubles the base window once per full batch of failures past the threshold
+     * and clamps the result to the hard cap. Doubling iteratively against an
+     * explicit ceiling replaces `baseWindow * 2 ** (tier - 1)`: once sustained
+     * abuse pushes the tier past the range where that exponent cast stays a
+     * valid integer, the cast overflows to a negative value that sails under
+     * the cap check - silently disabling the lockout right when abuse peaks.
+     *
+     * @param int $fails Total failed attempts counted in the lookback window.
+     * @param int $baseWindow The base lockout window in seconds.
+     * @param int $maxAttempts The failure threshold before lockout engages.
+     * @param int $maxLockout Hard cap for the escalated lockout window in seconds.
+     * @return int Escalated lockout window in seconds, never above $maxLockout.
+     */
+    private function escalatedWindowSeconds(int $fails, int $baseWindow, int $maxAttempts, int $maxLockout): int
+    {
+        $tier = intdiv($fails, $maxAttempts);
+        $duration = $baseWindow;
+        for ($i = 1; $i < $tier && $duration < $maxLockout; $i++) {
+            $duration *= 2;
+        }
+        if ($duration > $maxLockout) {
+            $duration = $maxLockout;
+        }
+        return $duration;
     }
 
     /**
