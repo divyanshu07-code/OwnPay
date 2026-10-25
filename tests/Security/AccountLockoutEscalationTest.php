@@ -9,6 +9,7 @@ use OwnPay\Event\EventManager;
 use OwnPay\Repository\LoginAttemptRepository;
 use OwnPay\Repository\MerchantUserRepository;
 use OwnPay\Security\Authenticator;
+use OwnPay\Service\System\EnvironmentService;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -26,6 +27,7 @@ final class AccountLockoutEscalationTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+        EnvironmentService::clearCache();
         $this->originalEnv = [
             'MAX_LOGIN_ATTEMPTS' => $_ENV['MAX_LOGIN_ATTEMPTS'] ?? null,
             'LOCKOUT_DURATION' => $_ENV['LOCKOUT_DURATION'] ?? null,
@@ -41,6 +43,7 @@ final class AccountLockoutEscalationTest extends TestCase
                 $_ENV[$key] = $value;
             }
         }
+        EnvironmentService::clearCache();
         parent::tearDown();
     }
 
@@ -126,6 +129,121 @@ final class AccountLockoutEscalationTest extends TestCase
         );
     }
 
+    public function testLockoutConfigHonorsEnvironmentService(): void
+    {
+        EnvironmentService::set('MAX_LOGIN_ATTEMPTS', '2');
+        EnvironmentService::set('LOCKOUT_DURATION', '600');
+
+        $inserted = null;
+        $ipCounter = ['fails' => 2, 'since_last' => 0];
+        $db = $this->createMock(Database::class);
+        $db->method('fetchOne')->willReturnCallback(
+            static function (string $sql) use (&$ipCounter): array {
+                if (str_contains($sql, 'ip_address = :ip')) {
+                    return $ipCounter;
+                }
+                return ['fails' => 1, 'since_last' => 500];
+            }
+        );
+        $db->method('insert')->willReturnCallback(
+            static function (string $sql, array $params) use (&$ipCounter, &$inserted): string {
+                $inserted = $params;
+                $ipCounter['fails'] += 1;
+                $ipCounter['since_last'] = 0;
+                return '1';
+            }
+        );
+
+        $auth = new Authenticator(
+            new MerchantUserRepository($db),
+            new LoginAttemptRepository($db),
+            new EventManager()
+        );
+
+        $result = $auth->attempt('victim@example.test', 'wrong-password', '203.0.113.10', 'PHPUnit');
+
+        $this->assertFalse($result['success']);
+        $this->assertStringContainsString('10 minute', (string) ($result['error'] ?? ''));
+    }
+
+    public function testConstructorInjectedLockoutConfigOverridesEnvironmentService(): void
+    {
+        EnvironmentService::set('MAX_LOGIN_ATTEMPTS', '10');
+        EnvironmentService::set('LOCKOUT_DURATION', '1800');
+
+        $inserted = null;
+        $ipCounter = ['fails' => 2, 'since_last' => 0];
+        $db = $this->createMock(Database::class);
+        $db->method('fetchOne')->willReturnCallback(
+            static function (string $sql) use (&$ipCounter): array {
+                if (str_contains($sql, 'ip_address = :ip')) {
+                    return $ipCounter;
+                }
+                return ['fails' => 1, 'since_last' => 500];
+            }
+        );
+        $db->method('insert')->willReturnCallback(
+            static function (string $sql, array $params) use (&$ipCounter, &$inserted): string {
+                $inserted = $params;
+                $ipCounter['fails'] += 1;
+                $ipCounter['since_last'] = 0;
+                return '1';
+            }
+        );
+
+        $auth = new Authenticator(
+            new MerchantUserRepository($db),
+            new LoginAttemptRepository($db),
+            new EventManager(),
+            null,
+            2,
+            120
+        );
+
+        $result = $auth->attempt('victim@example.test', 'wrong-password', '203.0.113.10', 'PHPUnit');
+
+        $this->assertFalse($result['success']);
+        $this->assertStringContainsString('2 minute', (string) ($result['error'] ?? ''));
+    }
+
+    public function testLockoutConfigSafelyDefaultsWhenConfigIsInvalidOrNonPositive(): void
+    {
+        EnvironmentService::set('MAX_LOGIN_ATTEMPTS', '0');
+        EnvironmentService::set('LOCKOUT_DURATION', '-50');
+
+        $inserted = null;
+        $ipCounter = ['fails' => 5, 'since_last' => 0];
+        $db = $this->createMock(Database::class);
+        $db->method('fetchOne')->willReturnCallback(
+            static function (string $sql) use (&$ipCounter): array {
+                if (str_contains($sql, 'ip_address = :ip')) {
+                    return $ipCounter;
+                }
+                return ['fails' => 1, 'since_last' => 500];
+            }
+        );
+        $db->method('insert')->willReturnCallback(
+            static function (string $sql, array $params) use (&$ipCounter, &$inserted): string {
+                $inserted = $params;
+                $ipCounter['fails'] += 1;
+                $ipCounter['since_last'] = 0;
+                return '1';
+            }
+        );
+
+        $auth = new Authenticator(
+            new MerchantUserRepository($db),
+            new LoginAttemptRepository($db),
+            new EventManager()
+        );
+
+        $result = $auth->attempt('victim@example.test', 'wrong-password', '203.0.113.10', 'PHPUnit');
+
+        $this->assertFalse($result['success']);
+        // Default base window is 300s (5 minutes)
+        $this->assertStringContainsString('5 minute', (string) ($result['error'] ?? ''));
+    }
+
     /**
      * Runs a login attempt while the account is already locked, against canned
      * counters. Recording the rejected attempt bumps the (email, IP) failure
@@ -138,6 +256,7 @@ final class AccountLockoutEscalationTest extends TestCase
      */
     private function attemptWhileLocked(array $ipCounter): array
     {
+        EnvironmentService::clearCache();
         $_ENV['MAX_LOGIN_ATTEMPTS'] = 5;
         $_ENV['LOCKOUT_DURATION'] = 300;
 
