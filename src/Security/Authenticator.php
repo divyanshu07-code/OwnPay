@@ -103,17 +103,31 @@ final class Authenticator
 
         // Verify active lockout window to prevent brute-force attacks.
         if ($this->maxAttempts !== null && $this->maxAttempts > 0) {
-            $maxAttempts = $this->maxAttempts;
+            $maxAttemptsRaw = $this->maxAttempts;
         } else {
             $maxAttemptsValue = EnvironmentService::get('MAX_LOGIN_ATTEMPTS');
-            $maxAttempts = is_numeric($maxAttemptsValue) && (int) $maxAttemptsValue > 0 ? (int) $maxAttemptsValue : 5;
+            $maxAttemptsRaw = is_numeric($maxAttemptsValue) && (int) $maxAttemptsValue > 0 ? (int) $maxAttemptsValue : 5;
+        }
+        // Bound the resolved value against the downstream integer arithmetic
+        // ($maxAttempts * 3 in the per-email threshold) so an oversized or
+        // saturated config value cannot overflow into a float and break the
+        // strict-typed repository calls.
+        $maxAttempts = min($maxAttemptsRaw, intdiv(PHP_INT_MAX, 3));
+        if ($maxAttempts < 1) {
+            $maxAttempts = 5;
         }
 
         if ($this->lockoutDuration !== null && $this->lockoutDuration > 0) {
-            $window = $this->lockoutDuration;
+            $windowRaw = $this->lockoutDuration;
         } else {
             $windowValue = EnvironmentService::get('LOCKOUT_DURATION');
-            $window = is_numeric($windowValue) && (int) $windowValue > 0 ? (int) $windowValue : 300;
+            $windowRaw = is_numeric($windowValue) && (int) $windowValue > 0 ? (int) $windowValue : 300;
+        }
+        // Bound the resolved value against the downstream integer arithmetic
+        // ($window * 12 lookback in the repository) to prevent overflow.
+        $window = min($windowRaw, intdiv(PHP_INT_MAX, 12));
+        if ($window < 1) {
+            $window = 300;
         }
 
         $emailLockRemaining = $attempts->lockoutSecondsRemainingByEmail($email, $window, $maxAttempts * 3);

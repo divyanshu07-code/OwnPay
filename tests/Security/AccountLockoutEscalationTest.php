@@ -28,6 +28,11 @@ final class AccountLockoutEscalationTest extends TestCase
     {
         parent::setUp();
         EnvironmentService::clearCache();
+        // Prevent settings persisted by a previous test (or a previous run)
+        // from leaking into this one via the shared database.
+        EnvironmentService::delete('MAX_LOGIN_ATTEMPTS');
+        EnvironmentService::delete('LOCKOUT_DURATION');
+        EnvironmentService::clearCache();
         $this->originalEnv = [
             'MAX_LOGIN_ATTEMPTS' => $_ENV['MAX_LOGIN_ATTEMPTS'] ?? null,
             'LOCKOUT_DURATION' => $_ENV['LOCKOUT_DURATION'] ?? null,
@@ -36,6 +41,10 @@ final class AccountLockoutEscalationTest extends TestCase
 
     protected function tearDown(): void
     {
+        // Remove any settings this test persisted so they cannot leak into
+        // other tests or subsequent runs sharing the same database.
+        EnvironmentService::delete('MAX_LOGIN_ATTEMPTS');
+        EnvironmentService::delete('LOCKOUT_DURATION');
         foreach ($this->originalEnv as $key => $value) {
             if ($value === null) {
                 unset($_ENV[$key]);
@@ -256,6 +265,8 @@ final class AccountLockoutEscalationTest extends TestCase
      */
     private function attemptWhileLocked(array $ipCounter): array
     {
+        EnvironmentService::delete('MAX_LOGIN_ATTEMPTS');
+        EnvironmentService::delete('LOCKOUT_DURATION');
         EnvironmentService::clearCache();
         $_ENV['MAX_LOGIN_ATTEMPTS'] = 5;
         $_ENV['LOCKOUT_DURATION'] = 300;
