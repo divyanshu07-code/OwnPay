@@ -106,7 +106,8 @@ final class Authenticator
             $maxAttemptsRaw = $this->maxAttempts;
         } else {
             $maxAttemptsValue = EnvironmentService::get('MAX_LOGIN_ATTEMPTS');
-            $maxAttemptsRaw = is_numeric($maxAttemptsValue) && (int) $maxAttemptsValue > 0 ? (int) $maxAttemptsValue : 5;
+            $filteredAttempts = filter_var($maxAttemptsValue, FILTER_VALIDATE_INT);
+            $maxAttemptsRaw = ($filteredAttempts !== false && $filteredAttempts > 0) ? $filteredAttempts : 5;
         }
         // Bound the resolved value against the downstream integer arithmetic
         // ($maxAttempts * 3 in the per-email threshold) so an oversized or
@@ -121,7 +122,8 @@ final class Authenticator
             $windowRaw = $this->lockoutDuration;
         } else {
             $windowValue = EnvironmentService::get('LOCKOUT_DURATION');
-            $windowRaw = is_numeric($windowValue) && (int) $windowValue > 0 ? (int) $windowValue : 300;
+            $filteredWindow = filter_var($windowValue, FILTER_VALIDATE_INT);
+            $windowRaw = ($filteredWindow !== false && $filteredWindow > 0) ? $filteredWindow : 300;
         }
         // Bound the resolved value against the downstream integer arithmetic
         // ($window * 12 lookback in the repository) to prevent overflow.
